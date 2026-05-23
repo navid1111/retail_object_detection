@@ -1,161 +1,112 @@
-# Retail Object Detection MLOps Assignment
+# Retail Object Detection Pipeline
 
-## Overview
-This repository shows an end-to-end retail object detection workflow with an emphasis on reproducibility, deployment readiness, and observability.
+End-to-end retail object detection pipeline for two noodle shelf classes:
 
-The core focus is on what was implemented and validated:
-- DVC for data and artifact versioning
-- ONNX export for efficient, framework-agnostic inference
-- FastAPI inference service with prediction logging
-- Prometheus + Grafana monitoring for model and service behavior
+- `foodie_noodles_olympics`
+- `mr_noodles_competitor`
 
-## Colab Notebook
-- Google Colab: https://colab.research.google.com/drive/1kQgV7Y1WdnaFq2ovuexW22Cbaxhha4hN?usp=sharing
+The project covers data checks, stratified YOLO split rebuilding, Airflow training, YOLO to ONNX export, FastAPI inference, Streamlit upload UI, MySQL prediction logging, Prometheus metrics, and Grafana dashboards.
 
-## Getting Started
+## Current Model
 
-### Prerequisites
-- Docker and Docker Compose installed
-- Python 3.9+ (for local development, optional)
+The serving app uses the exported ONNX model:
 
-### Quick Start
-
-#### Step 1: Start the Main Infrastructure
-Navigate to the project root and start the main Docker containers:
-
-```bash
-# From the assignment root directory
-docker-compose up -d
+```text
+runs/train/pipeline_run/weights/best.onnx
 ```
 
-This starts:
-- **Airflow**: http://localhost:8080 (username: `airflow`, password: `airflow`)
-- **Streamlit Dashboard**: http://localhost:8501
-- **MySQL Database**: localhost:3306 (credentials in docker-compose.yml)
+The FastAPI compose stack mounts it into the container as:
 
-#### Step 2: Start the FastAPI + Prometheus + Grafana Stack
-In a new terminal, navigate to the FastAPI directory and start its services:
-
-```bash
-# Navigate to the FastAPI app directory
-cd fastapi-prometheus-grafana-master
-
-# Start FastAPI, Prometheus, and Grafana
-docker-compose up
+```text
+/models/model.onnx
 ```
 
-This starts:
-- **FastAPI API**: http://localhost:8000 (API docs at `/docs`)
-- **Prometheus**: http://localhost:9090 (metrics database)
-- **Grafana**: http://localhost:3000 (dashboards, username: `admin`, password: `admin`)
+Latest test evaluation on the stratified test split:
 
-### Verify Everything is Running
+| Class | Precision | Recall | mAP50 | mAP50-95 |
+| --- | ---: | ---: | ---: | ---: |
+| foodie_noodles_olympics | 0.939 | 0.991 | 0.993 | 0.788 |
+| mr_noodles_competitor | 0.920 | 0.934 | 0.973 | 0.752 |
+| all | 0.929 | 0.962 | 0.983 | 0.770 |
 
-Check all services are healthy:
+## Setup
 
-```bash
-# Option 1: Check Docker containers
-docker-compose ps  # From assignment root
-cd fastapi-prometheus-grafana-master && docker-compose ps  # From FastAPI directory
+Copy the environment template before starting Airflow:
 
-# Option 2: Test API health
-curl http://localhost:8000/health
-
-# Option 3: Check Prometheus
-curl http://localhost:9090/-/healthy
+```powershell
+copy .env.example .env
 ```
 
-### First Steps with the API
+For this dataset, the important app settings are:
 
-#### 1. Access API Documentation
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-#### 2. Run Your First Detection
-```bash
-# Upload an image for detection
-curl -X POST http://localhost:8000/predict \
-  -F "image=@/path/to/image.jpg"
+```env
+APP_DATASET_YAML=dataset/dataset_yolo-20260523T151551Z-3-001/dataset_yolo/data.yaml
+APP_SOURCE_DATASET_DIR=dataset/dataset_yolo-20260523T151551Z-3-001/dataset_yolo
+APP_STRATIFIED_YAML=dataset/dataset_stratified/data.yaml
+APP_STRATIFIED_OUTPUT_DIR=dataset/dataset_stratified
+APP_EXPECTED_CLASSES=2
+APP_TRAIN_BATCH=4
+APP_TRAIN_WORKERS=0
+APP_TRAIN_RESUME=true
+APP_TRAIN_AMP=true
+APP_TRAIN_PATIENCE=0
 ```
 
-#### 3. View Results
-```bash
-# List recent predictions
-curl http://localhost:8000/predictions
+On Windows, do not use `sudo`. Run Docker commands directly from PowerShell.
 
-# View specific prediction (replace 1 with actual ID)
-curl http://localhost:8000/predictions/1
+## Data Utilities
+
+Run diagnostics on the configured stratified split:
+
+```powershell
+python diagnose.py
 ```
 
-#### 4. Check Prometheus Metrics
-```bash
-# View all collected metrics
-curl http://localhost:8000/metrics
+Rebuild the stratified train/validation/test split:
+
+```powershell
+python rebuild_splits.py
 ```
 
-#### 5. Monitor in Grafana
-1. Visit http://localhost:3000
-2. Login with `admin/admin`
-3. Navigate to Dashboards to view real-time metrics
-4. Key dashboards show:
-   - Prediction throughput
-   - Model inference latency
-   - Confidence score distribution
-   - Detection performance by class
+The rebuilt split is written to:
 
-### Stopping Services
-
-```bash
-# Stop FastAPI stack (from fastapi-prometheus-grafana-master directory)
-docker-compose down
-
-# Stop main infrastructure (from assignment root)
-docker-compose down
+```text
+dataset/dataset_stratified/
 ```
 
-## Final Model Snapshot
-- Dataset classes: 76
-- mAP50: 0.919
-- Precision: 0.906
-- Recall: 0.918
-- mAP50-95: 0.68
+with YOLO config:
 
-These results improved significantly after fixing data split quality.
-
-### Experiment Tracking
-All training runs, hyperparameter comparisons, and metrics are tracked in Weights & Biases:
-
-📊 **[View Full Experiment Report on W&B](https://api.wandb.ai/links/navidkamal-islamic-university-of-technology/2odl87uh)**
-
-The report includes:
-- Run-to-run comparisons across different configurations
-- Loss curves and validation metrics over time
-- Hyperparameter impact analysis
-- Model performance evolution
-
-## What Was Built
-
-### 1. Data Versioning with DVC
-DVC is used to track large data/model artifacts outside Git while keeping reproducible pointers in the repository.
-
-Why this matters:
-- Reproducibility: anyone can pull the exact dataset/model version
-- Traceability: model quality can be tied to specific data snapshots
-- Collaboration: large files are managed without bloating Git history
-
-Typical workflow:
-```bash
-# Pull tracked data/artifacts
-dvc pull
-
-# (when adding/updating artifacts)
-dvc add dataset/
-git add dataset.dvc .gitignore
-git commit -m "Track dataset with DVC"
+```text
+dataset/dataset_stratified/data.yaml
 ```
 
-### 2. Airflow Workflow (Diagram Only)
-Airflow orchestrates training/evaluation flow. The README intentionally keeps only the high-level workflow view.
+## Airflow Training
+
+Start the Airflow stack from the repository root:
+
+```powershell
+docker compose up -d
+```
+
+Airflow UI:
+
+```text
+http://localhost:8080
+```
+
+Default login:
+
+```text
+airflow / airflow
+```
+
+Primary DAG:
+
+```text
+branch_dag
+```
+
+High-level flow:
 
 ```mermaid
 flowchart TD
@@ -171,102 +122,154 @@ flowchart TD
     I --> J[push_to_registry]
 ```
 
-Airflow UI:
-- URL: `http://localhost:8080`
-- DAG: `branch_dag`
+Training writes artifacts under:
 
-![Airflow DAG Graph](branch_dag-graph.png)
+```text
+runs/train/pipeline_run/
+```
 
-### 3. ONNX Export and Why It Was Used
-The trained YOLO model was exported to ONNX (`best.onnx`) and used for serving.
+Important files:
 
-Why ONNX was chosen:
-- Smaller, lighter inference stack for deployment
-- No PyTorch runtime needed in inference container
-- Faster startup and simpler Docker images
-- Better portability across runtimes/hardware
+```text
+runs/train/pipeline_run/weights/best.pt
+runs/train/pipeline_run/weights/last.pt
+runs/train/pipeline_run/weights/best.onnx
+runs/train/pipeline_run/results.csv
+runs/train/pipeline_run/results.png
+```
 
-Produced artifact:
-- `runs/train/pipeline_run/weights/best.onnx`
+`best.pt` is updated whenever Ultralytics finds a new best validation fitness. The serving stack uses `best.onnx`, so export ONNX again after a better `best.pt` if needed.
 
-### 4. FastAPI Inference + Prediction Logging
+## Evaluate the Best Model
 
-A FastAPI backend accepts images, runs ONNX inference, and stores prediction metadata in MySQL.
-![FastAPI app UI](screencapture-localhost-8501-2026-03-11-20_03_13.png)
-Logged information includes:
-- Timestamp
-- Inference latency
-- Bounding boxes
-- Class IDs/names
-- Confidence scores
-- Optional ground-truth payload
+Evaluate the current best model against the stratified test split:
 
-Main endpoints:
-- `POST /predict`
-- `GET /predictions`
-- `GET /predictions/{id}`
-- `GET /health`
-- `GET /metrics` (Prometheus scrape endpoint)
+```powershell
+python evaluate_best.py
+```
 
-### 5. Observability with Prometheus + Grafana
-Prometheus collects application/inference metrics and Grafana visualizes them.
+This uses:
 
-System-level/API observability:
-- Request rate
-- Error rate
-- P50/P90 request latency
-- CPU and memory usage
-
-Model-level observability added:
-- Prediction throughput
-- Detection throughput by class
-- Confidence score behavior
-- Inference latency distributions
-- Detections per image
-- Low-confidence detection trends
-
-This enables monitoring both service health and model quality drift signals.
-
-![Grafana Model Observability Dashboard](screencapture-localhost-3000-d-eX4mpl3-fastapi-dashboard-2026-03-10-11_54_44.png)
-
-## Training Curves
-The training and validation curves below summarize optimization behavior and final metric convergence.
-
-![Training and Validation Curves](runs/train/pipeline_run/results.png)
+```text
+runs/train/pipeline_run/weights/best.pt
+dataset/dataset_stratified/data.yaml
+```
 
 ## Inference and Monitoring Stack
-`fastapi-prometheus-grafana-master/` contains:
-- `app/`: FastAPI + ONNX Runtime + MySQL logging
-- `streamlit/`: simple UI for uploads and results
-- `prometheus/`: scrape config
-- `grafana/`: dashboard provisioning
 
-## Run (Monitoring Stack)
-From `fastapi-prometheus-grafana-master/`:
+Start the FastAPI, Streamlit, Prometheus, Grafana, and MySQL stack:
 
-```bash
-docker compose up -d --build
+```powershell
+docker compose -f fastapi-prometheus-grafana-master\docker-compose.yaml up -d --build
 ```
 
 Services:
-- FastAPI: `http://localhost:8000`
-- Streamlit: `http://localhost:8501`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
 
-## Repository Structure (High Level)
+| Service | URL |
+| --- | --- |
+| FastAPI | http://localhost:8000 |
+| API docs | http://localhost:8000/docs |
+| Streamlit UI | http://localhost:8501 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 |
+| MySQL | localhost:3307 |
+
+Grafana default login comes from `fastapi-prometheus-grafana-master/grafana/config.monitoring`.
+
+## API Usage
+
+Health check:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/health
+```
+
+Run prediction:
+
+```powershell
+curl.exe -X POST -F "image=@dataset/dataset_stratified/test/images/olympic_poc_image_337.jpg" http://localhost:8000/predict
+```
+
+List predictions:
+
+```powershell
+curl.exe http://localhost:8000/predictions
+```
+
+Prometheus metrics:
+
+```powershell
+curl.exe http://localhost:8000/metrics
+```
+
+## FastAPI Notes
+
+The app reads class names from ONNX metadata. If the model metadata is present, `/health` should show:
+
+```json
+{
+  "class_names": {
+    "0": "foodie_noodles_olympics",
+    "1": "mr_noodles_competitor"
+  }
+}
+```
+
+The app also includes a small compatibility migration for older demo MySQL volumes that still contain `human_count` and `car_count`. Those legacy columns are given default `0` values so retail predictions can be saved without resetting the database.
+
+## Troubleshooting
+
+If Docker complains that `.env` is missing:
+
+```powershell
+copy .env.example .env
+```
+
+If PowerShell says `sudo` is disabled, just remove `sudo`:
+
+```powershell
+docker compose up -d
+```
+
+If `/predict` returns HTTP 500, check the app logs:
+
+```powershell
+docker compose -f fastapi-prometheus-grafana-master\docker-compose.yaml logs --tail=100 app
+```
+
+If the FastAPI code changed but the container still behaves the same, rebuild and force-recreate:
+
+```powershell
+docker compose -f fastapi-prometheus-grafana-master\docker-compose.yaml up -d --build app
+docker compose -f fastapi-prometheus-grafana-master\docker-compose.yaml up -d --force-recreate app
+```
+
+## Repository Structure
+
 ```text
-assignment/
+.
 |- dags/
 |- src/
+|  |- data/
+|  |- model/
+|  |- pipeline/
 |- dataset/
 |- runs/
 |- fastapi-prometheus-grafana-master/
+|  |- app/
+|  |- streamlit/
+|  |- prometheus/
+|  |- grafana/
+|- diagnose.py
+|- rebuild_splits.py
+|- evaluate_best.py
 |- docker-compose.yml
+|- Dockerfile
 |- README.md
 ```
 
 ## Notes
-- Large artifacts are expected to be restored via DVC.
-- ONNX inference is intentionally used for serving to keep deployment lean.
-- Dashboard is oriented toward both API uptime and model behavior, not only infra metrics.
+
+- Keep secrets in `.env`; do not commit real API keys.
+- Large datasets and model artifacts should be handled with DVC or external storage.
+- The inference container intentionally uses ONNX Runtime instead of PyTorch for a lighter serving image.

@@ -1,11 +1,11 @@
 task: detect
 mode: train
-model: /opt/airflow/project/yolo11m.pt
+model: /opt/airflow/project/runs/train/pipeline_run/weights/last.pt
 data: /opt/airflow/project/dataset/dataset_stratified/data.yaml
 epochs: 100
 time: null
-patience: 15
-batch: 8
+patience: 0
+batch: 4
 imgsz: 640
 save: true
 save_period: -1

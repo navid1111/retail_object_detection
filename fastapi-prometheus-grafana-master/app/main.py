@@ -56,6 +56,7 @@ def health() -> dict:
         "status": "ok",
         "model": detection_service.model_name,
         "input_hw": detection_service.input_hw,
+        "class_names": detection_service.class_names,
     }
 
 

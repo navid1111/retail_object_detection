@@ -53,6 +53,38 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
+def _relax_legacy_prediction_columns() -> None:
+    """Keep old demo databases compatible with the retail prediction schema."""
+    legacy_defaults = {
+        "human_count": "INT NOT NULL DEFAULT 0",
+        "car_count": "INT NOT NULL DEFAULT 0",
+    }
+
+    with engine.begin() as conn:
+        existing_columns = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    """
+                    SELECT COLUMN_NAME
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'predictions'
+                    """
+                )
+            )
+        }
+
+        for column_name, column_definition in legacy_defaults.items():
+            if column_name in existing_columns:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE predictions "
+                        f"MODIFY COLUMN {column_name} {column_definition}"
+                    )
+                )
+
+
 def init_db() -> None:
     """Initialize the database and ensure it's ready."""
     attempts = max(1, DB_WAIT_SECONDS // 2)
@@ -63,6 +95,7 @@ def init_db() -> None:
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             Base.metadata.create_all(bind=engine)
+            _relax_legacy_prediction_columns()
             return
         except Exception as exc:
             last_error = exc

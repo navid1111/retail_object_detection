@@ -62,4 +62,4 @@ logs/
 *.temp
 .env
 !.env.example
-dataset/dataset
+dataset/

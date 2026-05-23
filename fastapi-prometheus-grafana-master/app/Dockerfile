@@ -1,9 +1,9 @@
 FROM python:3.11-slim
 
-WORKDIR /app/
+WORKDIR /
 
-COPY . .
+COPY . /app
 
-RUN pip install -r requirements.txt
+RUN pip install -r /app/requirements.txt
 
-CMD uvicorn --host=0.0.0.0 main:app
+CMD ["uvicorn", "--host=0.0.0.0", "app.main:app"]

@@ -1,5 +1,6 @@
 """Detection service for ONNX inference."""
 
+import ast
 import time
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import numpy as np
 import onnxruntime as ort
 
 from .config import CONF_THRESHOLD, INPUT_HW, IOU_THRESHOLD, MODEL_PATH
-from .utils import DetectionResult, postprocess, preprocess
+from .utils import DetectionResult, postprocess, preprocess, set_class_names
 
 
 class DetectionService:
@@ -18,6 +19,7 @@ class DetectionService:
         self.input_name: str | None = None
         self.input_hw: tuple[int, int] = INPUT_HW
         self.model_name: str = ""
+        self.class_names: dict[int, str] = {}
 
     def initialize(self, model_path: str = MODEL_PATH) -> None:
         """Initialize the ONNX model."""
@@ -30,12 +32,33 @@ class DetectionService:
         input_info = self.onnx_session.get_inputs()[0]
         self.input_name = input_info.name
         self.model_name = Path(model_path).name
+        self.class_names = self._load_class_names()
+        set_class_names(self.class_names)
 
         shape = input_info.shape
         if isinstance(shape, list) and len(shape) >= 4:
             h = shape[2] if isinstance(shape[2], int) else 640
             w = shape[3] if isinstance(shape[3], int) else 640
             self.input_hw = (int(h), int(w))
+
+    def _load_class_names(self) -> dict[int, str]:
+        """Read class-name metadata from the exported Ultralytics ONNX model."""
+        if self.onnx_session is None:
+            return {}
+
+        raw_names = self.onnx_session.get_modelmeta().custom_metadata_map.get("names")
+        if not raw_names:
+            return {}
+
+        try:
+            parsed = ast.literal_eval(raw_names)
+        except (SyntaxError, ValueError):
+            return {}
+
+        if not isinstance(parsed, dict):
+            return {}
+
+        return {int(class_id): str(name) for class_id, name in parsed.items()}
 
     def is_ready(self) -> bool:
         """Check if the model is initialized."""

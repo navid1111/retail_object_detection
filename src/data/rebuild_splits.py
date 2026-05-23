@@ -37,16 +37,23 @@ def get_classes_in_label(label_path):
 def collect_all_images():
     """Collect all images from train/val/test splits."""
     all_images = []
+    seen = set()
     
-    for split in ['train', 'valid', 'test']:
-        img_dir = SOURCE_DIR / split / 'images'
-        label_dir = SOURCE_DIR / split / 'labels'
+    for split in ['train', 'val', 'valid', 'test']:
+        candidates = [
+            (SOURCE_DIR / 'images' / split, SOURCE_DIR / 'labels' / split),
+            (SOURCE_DIR / split / 'images', SOURCE_DIR / split / 'labels'),
+        ]
         
-        if not img_dir.exists():
-            continue
+        for img_dir, label_dir in candidates:
+            if not img_dir.exists():
+                continue
             
-        for img_path in img_dir.glob('*'):
-            if img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
+            for img_path in img_dir.glob('*'):
+                if img_path in seen or img_path.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.bmp']:
+                    continue
+
+                seen.add(img_path)
                 label_path = label_dir / f"{img_path.stem}.txt"
                 classes = get_classes_in_label(label_path)
                 all_images.append({
@@ -159,6 +166,7 @@ def create_data_yaml(output_dir, original_yaml_path):
     data['train'] = 'train/images'
     data['val'] = 'valid/images'
     data['test'] = 'test/images'
+    data.pop('path', None)
     
     # Remove roboflow metadata
     if 'roboflow' in data:
@@ -230,12 +238,12 @@ def main(base_dir=None):
     if missing_in_val:
         print(f"\nWARNING: {len(missing_in_val)} classes missing from val: {sorted(missing_in_val)}")
     else:
-        print("\n✓ All training classes present in validation set!")
+        print("\nOK: All training classes present in validation set!")
     
     if missing_in_test:
         print(f"WARNING: {len(missing_in_test)} classes missing from test: {sorted(missing_in_test)}")
     else:
-        print("✓ All training classes present in test set!")
+        print("OK: All training classes present in test set!")
     
     # Copy files
     print("\n" + "=" * 60)

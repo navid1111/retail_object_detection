@@ -5,6 +5,18 @@ from PIL import Image, ImageDraw
 
 from .config import CONF_THRESHOLD, IOU_THRESHOLD, INPUT_HW
 
+CLASS_NAMES = {
+    0: "foodie_noodles_olympics",
+    1: "mr_noodles_competitor",
+}
+
+
+def set_class_names(class_names: dict[int, str]) -> None:
+    """Update class names from model metadata."""
+    if class_names:
+        CLASS_NAMES.clear()
+        CLASS_NAMES.update(class_names)
+
 
 class DetectionResult:
     """Represents a single detection result."""
@@ -135,11 +147,12 @@ def draw_boxes(img_rgb: np.ndarray, detections: list[DetectionResult]) -> np.nda
     draw = ImageDraw.Draw(img)
     for det in detections:
         x1, y1, x2, y2 = det.box_xyxy
+        label = get_class_name(det.class_id)
         draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=2)
-        draw.text((x1 + 2, max(0, y1 - 12)), f"id:{det.class_id} {det.confidence:.2f}", fill=(255, 0, 0))
+        draw.text((x1 + 2, max(0, y1 - 12)), f"{label} {det.confidence:.2f}", fill=(255, 0, 0))
     return np.array(img)
 
 
 def get_class_name(class_id: int) -> str:
     """Get class name from class ID."""
-    return f"class_{class_id}"
+    return CLASS_NAMES.get(class_id, f"class_{class_id}")

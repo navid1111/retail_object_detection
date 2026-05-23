@@ -15,6 +15,30 @@ if __package__ in (None, ""):
 from src.config import get_settings
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _metric_value(results, key: str, default: float = 0.0) -> float:
+    return float(getattr(results, "results_dict", {}).get(key, default))
+
+
+def _fitness_value(results) -> float:
+    if hasattr(results, "best_fitness"):
+        return float(results.best_fitness)
+
+    fitness = getattr(results, "fitness", None)
+    if callable(fitness):
+        return float(fitness())
+    if fitness is not None:
+        return float(fitness)
+
+    return _metric_value(results, "fitness", 0.0)
+
+
 def _get_dvc_metadata(repo_root: str, dvc_file_path: str = "dataset.dvc") -> dict:
     """
     Load DVC file metadata (MD5 hash, file count) for dataset version tracking.
@@ -109,7 +133,21 @@ def run_training(
             print(f"⚠️  W&B login failed: {e}")
             print("⚠️  Continuing training without W&B logging...\n")
 
-    model = YOLO(model_base)
+    resume_training = _env_bool("APP_TRAIN_RESUME", False)
+    strict_resume = _env_bool("APP_TRAIN_STRICT_RESUME", False)
+    amp = _env_bool("APP_TRAIN_AMP", True)
+    last_checkpoint = Path(project) / name / "weights" / "last.pt"
+
+    train_options = {}
+    if resume_training and last_checkpoint.exists():
+        model = YOLO(str(last_checkpoint))
+        if strict_resume:
+            print(f"Resuming training state from: {last_checkpoint}")
+            train_options["resume"] = True
+        else:
+            print(f"Warm-starting training from: {last_checkpoint}")
+    else:
+        model = YOLO(model_base)
 
     results = model.train(
         data=data_yaml,
@@ -130,7 +168,9 @@ def run_training(
         project=project,
         name=name,
         exist_ok=True,
+        amp=amp,
         plots=True,
+        **train_options,
     )
 
     best = os.path.join(str(results.save_dir), "weights", "best.pt")
@@ -141,11 +181,11 @@ def run_training(
     if run is not None:
         try:
             # Log final metrics to summary
-            run.summary["best_precision"] = results.results_dict.get("metrics/precision(B)", 0)
-            run.summary["best_recall"] = results.results_dict.get("metrics/recall(B)", 0)
-            run.summary["best_mAP50"] = results.results_dict.get("metrics/mAP50(B)", 0)
-            run.summary["best_mAP50_95"] = results.results_dict.get("metrics/mAP50-95(B)", 0)
-            run.summary["best_fitness"] = results.best_fitness
+            run.summary["best_precision"] = _metric_value(results, "metrics/precision(B)")
+            run.summary["best_recall"] = _metric_value(results, "metrics/recall(B)")
+            run.summary["best_mAP50"] = _metric_value(results, "metrics/mAP50(B)")
+            run.summary["best_mAP50_95"] = _metric_value(results, "metrics/mAP50-95(B)")
+            run.summary["best_fitness"] = _fitness_value(results)
             
             # Log dataset version and DVC metadata to summary for easy tracking
             run.summary["dataset_version"] = runtime.dataset_version
@@ -155,10 +195,10 @@ def run_training(
             # Log metrics and DVC info to the run
             log_dict = {
                 "dataset_version": runtime.dataset_version,
-                "final_precision": results.results_dict.get("metrics/precision(B)", 0),
-                "final_recall": results.results_dict.get("metrics/recall(B)", 0),
-                "final_mAP50": results.results_dict.get("metrics/mAP50(B)", 0),
-                "final_mAP50_95": results.results_dict.get("metrics/mAP50-95(B)", 0),
+                "final_precision": _metric_value(results, "metrics/precision(B)"),
+                "final_recall": _metric_value(results, "metrics/recall(B)"),
+                "final_mAP50": _metric_value(results, "metrics/mAP50(B)"),
+                "final_mAP50_95": _metric_value(results, "metrics/mAP50-95(B)"),
                 "total_epochs_trained": len(results.epochs) if hasattr(results, 'epochs') else epochs,
             }
             log_dict.update(dvc_meta)
